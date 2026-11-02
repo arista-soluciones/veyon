@@ -1,0 +1,43 @@
+name: "macOS Builds"
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # required for determining the build number via git describe
+          fetch-depth: 0
+      - name: Install dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
+        run: |
+          brew install ninja pkgconf openssl@3 libvncserver librsvg
+          # Qt is split into per-module formulae in recent Homebrew versions
+          brew install qtbase qttools qt5compat qttranslations || brew install qt
+          brew install qca
+      - name: Build and package
+        run: .ci/macos/build.sh $GITHUB_WORKSPACE /tmp/build-macos $GITHUB_WORKSPACE/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: veyon-master-macos
+          path: dist/*.pkg
+          if-no-files-found: error
+      - name: Test installed package
+        run: |
+          sudo installer -pkg dist/*.pkg -target /
+          veyon-cli about
+          # system-wide configuration and key management require root privileges
+          sudo veyon-cli config set Network/VeyonServerPort 11100
+          ls -l /Library/Preferences/ | grep -i veyon
+          sudo veyon-cli authkeys create teacher
+          sudo veyon-cli authkeys setaccessgroup teacher/private staff
+          veyon-cli authkeys list details
+          ls -lR "/Library/Application Support/Veyon/keys"

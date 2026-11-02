@@ -1,0 +1,16 @@
+#!/bin/sh
+#
+# make veyon-cli available in the default search path - a wrapper script is used
+# instead of a symlink as veyon-cli locates its plugins relative to its own path
+#
+
+mkdir -p /usr/local/bin
+
+cat > /usr/local/bin/veyon-cli <<'EOF'
+#!/bin/sh
+exec "/Applications/Veyon/Veyon Master.app/Contents/MacOS/veyon-cli" "$@"
+EOF
+
+chmod 755 /usr/local/bin/veyon-cli
+
+exit 0

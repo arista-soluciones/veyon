@@ -23,6 +23,10 @@ function(build_veyon_plugin TARGET)
 
 	set_default_target_properties(${TARGET})
 	set_target_properties(${TARGET} PROPERTIES PREFIX "")
+	if(VEYON_BUILD_APPLE)
+		# CMake defaults to ".so" for modules on macOS while PluginManager looks for ".dylib"
+		set_target_properties(${TARGET} PROPERTIES SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}")
+	endif()
 	if(${TARGET}_COMPONENT)
 		install(TARGETS ${TARGET} COMPONENT ${${TARGET}_COMPONENT} LIBRARY DESTINATION ${VEYON_INSTALL_PLUGIN_DIR})
 	else()

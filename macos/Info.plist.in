@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>@BUNDLE_NAME@</string>
+	<key>CFBundleExecutable</key>
+	<string>@BUNDLE_EXECUTABLE@</string>
+	<key>CFBundleIconFile</key>
+	<string>@BUNDLE_ICON@</string>
+	<key>CFBundleIdentifier</key>
+	<string>@BUNDLE_IDENTIFIER@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>@BUNDLE_NAME@</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION_MAJOR@.@VERSION_MINOR@.@VERSION_PATCH@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION_MAJOR@.@VERSION_MINOR@.@VERSION_PATCH@.@VERSION_BUILD@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.education</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>@BUNDLE_MINIMUM_SYSTEM_VERSION@</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Veyon is free software licensed under the GNU General Public License version 2</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Veyon connects to the computers in your local network in order to monitor and control them.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Veyon uses Apple events to log off, restart or shut down this computer.</string>
+</dict>
+</plist>

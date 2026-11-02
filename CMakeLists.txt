@@ -109,12 +109,28 @@ endif()
 if(APPLE)
 	set(VEYON_BUILD_APPLE 1)
 endif()
-if(UNIX AND NOT ANDROID)
+if(UNIX AND NOT ANDROID AND NOT APPLE)
 	set(VEYON_BUILD_LINUX 1)
 endif()
 if(ANDROID)
 	set(VEYON_BUILD_ANDROID 1)
 endif()
+
+# the macOS port currently covers the Master side only (Master, Configurator, CLI)
+if(VEYON_BUILD_APPLE)
+	set(WITH_SERVER_DEFAULT OFF)
+	set(WITH_LDAP_DEFAULT OFF)
+else()
+	set(WITH_SERVER_DEFAULT ON)
+	set(WITH_LDAP_DEFAULT ON)
+endif()
+option(WITH_SERVER "Build Veyon Server, Service, Worker and VNC server plugins" ${WITH_SERVER_DEFAULT})
+option(WITH_LDAP "Build LDAP plugin" ${WITH_LDAP_DEFAULT})
+if(NOT WITH_SERVER)
+	set(WITH_WEBAPI OFF)
+endif()
+
+set(VEYON_INSTALL_BIN_DIR bin)
 
 # set up library and plugin path variables
 if(VEYON_BUILD_ANDROID)
@@ -124,6 +140,14 @@ if(VEYON_BUILD_ANDROID)
 	set(VEYON_INSTALL_DATA_DIR "${CMAKE_INSTALL_DATADIR}/veyon")
 	set(VEYON_PLUGIN_DIR "")
 	set(VEYON_TRANSLATIONS_DIR "/translations")
+elseif(VEYON_BUILD_APPLE)
+	# CMAKE_INSTALL_PREFIX is expected to point to the Contents directory of an application bundle
+	set(VEYON_INSTALL_BIN_DIR "MacOS")
+	set(VEYON_LIB_DIR "Frameworks" CACHE INTERNAL "Veyon library directory")
+	set(VEYON_INSTALL_PLUGIN_DIR "PlugIns/veyon")
+	set(VEYON_INSTALL_DATA_DIR "Resources")
+	set(VEYON_PLUGIN_DIR "../PlugIns/veyon")
+	set(VEYON_TRANSLATIONS_DIR "../Resources/translations")
 else()
 	if(CMAKE_INSTALL_LIBDIR)
 		set(VEYON_LIB_DIR "${CMAKE_INSTALL_LIBDIR}/veyon" CACHE INTERNAL "Veyon library directory")
@@ -308,8 +332,16 @@ set(qthttpserver_DIR ${3rdparty_DIR}/qthttpserver)
 
 set(CMAKE_SKIP_BUILD_RPATH  FALSE)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
-set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${VEYON_LIB_DIR}")
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+if(VEYON_BUILD_APPLE)
+	# executables and plugins are loaded from within the application bundle - never reference
+	# libraries outside of it (e.g. from Homebrew) as they get bundled by macdeployqt
+	set(CMAKE_INSTALL_NAME_DIR "@rpath")
+	set(CMAKE_INSTALL_RPATH "@executable_path/../Frameworks")
+	set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
+else()
+	set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${VEYON_LIB_DIR}")
+	set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+endif()
 
 
 include(cmake/CPackDefinitions.cmake)
@@ -318,12 +350,14 @@ include(cmake/CPackDefinitions.cmake)
 # make sub-directories
 add_subdirectory(core)
 if(NOT WITH_CORE_ONLY)
-	add_subdirectory(server)
-	add_subdirectory(service)
+	if(WITH_SERVER)
+		add_subdirectory(server)
+		add_subdirectory(service)
+		add_subdirectory(worker)
+	endif()
 	add_subdirectory(master)
 	add_subdirectory(configurator)
 	add_subdirectory(cli)
-	add_subdirectory(worker)
 	add_subdirectory(plugins)
 	add_subdirectory(tests)
 	add_subdirectory(translations)
@@ -337,6 +371,13 @@ endif()
 #
 if(WIN32)
 	include(WindowsInstaller)
+endif()
+
+#
+# add macOS application bundle and installer related targets
+#
+if(VEYON_BUILD_APPLE AND NOT WITH_CORE_ONLY)
+	add_subdirectory(macos)
 endif()
 
 #
@@ -364,6 +405,8 @@ message("\n"
 	"* Stack protection            : ${WITH_STACK_PROTECTION}\n"
 	"* Use precompiled headers     : ${WITH_PCH}\n"
 	"* Use unity build             : ${WITH_UNITY_BUILD}\n"
+	"* Build server components     : ${WITH_SERVER}\n"
+	"* Build LDAP plugin           : ${WITH_LDAP}\n"
 	)
 
 if(VEYON_BUILD_ANDROID)

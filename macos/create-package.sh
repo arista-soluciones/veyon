@@ -93,9 +93,150 @@ done
 
 "$MACDEPLOYQT" "$MASTER_APP" "${DEPLOY_ARGS[@]}"
 
+
+echo "* Bundling libraries missed by macdeployqt"
+
+# macdeployqt can't resolve @rpath references across Homebrew's per-module Qt kegs (e.g.
+# qtsvg's plugins -> QtSvg.framework) and misses some transitive references between libraries
+FRAMEWORKS_DIR="$MASTER_APP/Contents/Frameworks"
+BUNDLED_LIBRARY_PREFIX="@executable_path/../Frameworks"
+
+LIBRARY_SEARCH_DIRS=(${libpaths[@]+"${libpaths[@]}"})
+if command -v brew > /dev/null ; then
+	LIBRARY_SEARCH_DIRS+=("$(brew --prefix)"/opt/*/lib)
+fi
+
+find_library()
+{
+	local relativePath=$1 dir
+	for dir in ${LIBRARY_SEARCH_DIRS[@]+"${LIBRARY_SEARCH_DIRS[@]}"} ; do
+		if [ -e "$dir/$relativePath" ] ; then
+			echo "$dir/$relativePath"
+			return 0
+		fi
+	done
+	return 1
+}
+
+# path of a library relative to the Frameworks directory, e.g. libfoo.1.dylib or Foo.framework/Versions/A/Foo
+bundle_relative_path()
+{
+	local path=$1 frameworkPrefix
+	case "$path" in
+	*.framework/*)
+		frameworkPrefix=${path%%.framework/*}
+		echo "${frameworkPrefix##*/}.framework/${path#*.framework/}"
+		;;
+	*)
+		echo "${path##*/}"
+		;;
+	esac
+}
+
+bundle_library()
+{
+	local sourcePath=$1 relativePath=$2 frameworkName sourceFramework
+	local targetPath="$FRAMEWORKS_DIR/$relativePath"
+
+	if [ -e "$targetPath" ] ; then
+		return 0
+	fi
+
+	echo "Bundling $sourcePath"
+
+	case "$relativePath" in
+	*.framework/*)
+		frameworkName=${relativePath%%/*}
+		sourceFramework=${sourcePath%"/${relativePath#*/}"}
+		ditto "$(cd -P "$sourceFramework" && pwd)" "$FRAMEWORKS_DIR/$frameworkName"
+		chmod -R u+w "$FRAMEWORKS_DIR/$frameworkName"
+		rm -rf "$FRAMEWORKS_DIR/$frameworkName/Headers" "$FRAMEWORKS_DIR/$frameworkName"/Versions/*/Headers
+		;;
+	*)
+		mkdir -p "$(dirname "$targetPath")"
+		cp -L "$sourcePath" "$targetPath"
+		chmod u+w "$targetPath"
+		;;
+	esac
+
+	install_name_tool -id "$BUNDLED_LIBRARY_PREFIX/$relativePath" "$targetPath"
+}
+
+# all files which may be Mach-O binaries - framework binaries are not marked as executable
+find_bundle_binaries()
+{
+	find "$MASTER_APP/Contents/MacOS" "$MASTER_APP/Contents/Frameworks" "$MASTER_APP/Contents/PlugIns" \
+		-type f ! -name "*.plist" ! -name "*.prl" ! -name "*.xcprivacy" -print0
+}
+
+# repeat as newly bundled libraries can have dependencies on their own
+bundleChanged=1
+while [ "$bundleChanged" -ne 0 ] ; do
+	bundleChanged=0
+
+	while IFS= read -r -d '' binary ; do
+		# otool fails for everything that is not a Mach-O binary
+		dependencies=$(otool -L "$binary" 2> /dev/null | awk 'NR > 1 { print $1 }') || continue
+		libraryId=$(otool -D "$binary" 2> /dev/null | awk 'NR == 2 { print $1 }') || continue
+
+		case "$libraryId" in
+		/opt/*|/usr/local/*)
+			chmod u+w "$binary"
+			install_name_tool -id "$BUNDLED_LIBRARY_PREFIX/$(bundle_relative_path "$libraryId")" "$binary"
+			bundleChanged=1
+			;;
+		esac
+
+		for dependency in $dependencies ; do
+			if [ "$dependency" = "$libraryId" ] ; then
+				continue
+			fi
+
+			case "$dependency" in
+			/opt/*|/usr/local/*)
+				relativePath=$(bundle_relative_path "$dependency")
+				sourcePath=$dependency
+				;;
+			@rpath/*)
+				relativePath=${dependency#@rpath/}
+				if [ -e "$FRAMEWORKS_DIR/$relativePath" ] ; then
+					continue
+				fi
+				if ! sourcePath=$(find_library "$relativePath") ; then
+					echo "Could not find $dependency referenced by $binary" >&2
+					exit 1
+				fi
+				;;
+			*)
+				continue
+				;;
+			esac
+
+			bundle_library "$sourcePath" "$relativePath"
+			chmod u+w "$binary"
+			install_name_tool -change "$dependency" "$BUNDLED_LIBRARY_PREFIX/$relativePath" "$binary"
+			bundleChanged=1
+		done
+	done < <(find_bundle_binaries)
+done
+
 # make sure nothing references libraries outside the bundle or the system
-unresolved=$(find "$MASTER_APP/Contents" -type f \( -perm -u+x -o -name "*.dylib" \) -exec otool -L {} + 2>/dev/null |
-			 grep -E "^\s+/(opt|usr/local)/" || true)
+unresolved=""
+while IFS= read -r -d '' binary ; do
+	dependencies=$(otool -L "$binary" 2> /dev/null | awk 'NR > 1 { print $1 }') || continue
+	for dependency in $dependencies ; do
+		case "$dependency" in
+		/opt/*|/usr/local/*)
+			unresolved+="$binary -> $dependency"$'\n'
+			;;
+		@rpath/*)
+			if [ ! -e "$FRAMEWORKS_DIR/${dependency#@rpath/}" ] ; then
+				unresolved+="$binary -> $dependency"$'\n'
+			fi
+			;;
+		esac
+	done
+done < <(find_bundle_binaries)
 if [ -n "$unresolved" ] ; then
 	echo "Unresolved non-system library references:" >&2
 	echo "$unresolved" >&2

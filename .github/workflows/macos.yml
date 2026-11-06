@@ -8,7 +8,11 @@ on:
 
 jobs:
   build-macos:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -27,7 +31,7 @@ jobs:
         run: .ci/macos/build.sh $GITHUB_WORKSPACE /tmp/build-macos $GITHUB_WORKSPACE/dist
       - uses: actions/upload-artifact@v4
         with:
-          name: veyon-master-macos
+          name: veyon-master-${{ matrix.runner }}
           path: dist/*.pkg
           if-no-files-found: error
       - name: Test installed package

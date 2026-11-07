@@ -36,21 +36,9 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja \
 
 cmake --build "$BUILD"
 
-export DEPLOY_LIBPATHS="$BREW_PREFIX/lib:$BREW_PREFIX/Frameworks"
+# Homebrew installs Qt modules and other libraries into separate kegs
+DEPLOY_LIBPATHS="$BREW_PREFIX/lib:$BREW_PREFIX/Frameworks$(printf ':%s' "$BREW_PREFIX"/opt/*/lib)"
+export DEPLOY_LIBPATHS
 "$SRC/macos/create-package.sh" "$BUILD" "$OUTPUT"
 
-# smoke test: all libraries and plugins have to be loadable from within the bundle
-APP="$BUILD/macos/staging/root/Applications/Veyon/Veyon Master.app"
-"$APP/Contents/MacOS/veyon-cli" about
-
-# nothing may be loaded from outside the bundle, as it wouldn't exist on other
-# machines and a second copy of Qt crashes the process
-SMOKE_LOG=$(mktemp)
-status=0
-DYLD_PRINT_LIBRARIES=1 "$APP/Contents/MacOS/veyon-cli" plugin list > "$SMOKE_LOG" 2>&1 || status=$?
-grep -v '^dyld' "$SMOKE_LOG" || true
-if grep -B 3 -E '^dyld.*(/opt/homebrew|/usr/local)/' "$SMOKE_LOG" ; then
-	echo "Libraries were loaded from outside the bundle (see above)" >&2
-	status=1
-fi
-exit $status
+"$SRC/.ci/macos/smoke-test.sh" "$BUILD/macos/staging/root/Applications/Veyon/Veyon Master.app"

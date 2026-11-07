@@ -158,8 +158,9 @@ while [ "$changed" = 1 ] ; do
 					install_name_tool -delete_rpath "$rpath" "$binary"
 					;;
 			esac
-		done < <(otool -l "$binary" | sed -nE '/cmd LC_RPATH/,/path /s/^[[:space:]]+path (.*) \(offset [0-9]+\)$/\1/p')
-		id=$(otool -D "$binary" | tail -n +2)
+		done < <(otool -l "$binary" | sed -nE '/cmd LC_RPATH/,/path /s/^[[:space:]]+path (.*) \(offset [0-9]+\)$/\1/p' | sort -u)
+		# for universal binaries otool prints a header line per architecture
+		id=$(otool -D "$binary" | grep -v ':$' | head -n 1 || true)
 		case "$id" in
 			/usr/lib/*|/System/*) ;;
 			/*)
@@ -192,7 +193,7 @@ while [ "$changed" = 1 ] ; do
 					fi
 					;;
 			esac
-		done < <(otool -L "$binary" | tail -n +2 | sed -E 's/^[[:space:]]+//; s/ \(compatibility version.*$//')
+		done < <(otool -L "$binary" | grep -v ':$' | sed -E 's/^[[:space:]]+//; s/ \(compatibility version.*$//' | sort -u)
 	done < <(find "$MASTER_APP/Contents/MacOS" "$FRAMEWORKS_DIR" "$MASTER_APP/Contents/PlugIns" -type f -print0)
 done
 

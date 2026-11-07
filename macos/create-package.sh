@@ -193,6 +193,12 @@ while [ "$changed" = 1 ] ; do
 	done < <(find "$MASTER_APP/Contents/MacOS" "$FRAMEWORKS_DIR" "$MASTER_APP/Contents/PlugIns" -type f -print0)
 done
 
+# QCA (UTF-16) and OpenSSL (ASCII) have the plugin directories of their Homebrew
+# kegs compiled in. If these exist on the machine, all plugins in there get loaded
+# along with a second copy of Qt, so invalidate the paths without changing their length.
+find "$FRAMEWORKS_DIR" "$MASTER_APP/Contents/PlugIns" -type f -print0 |
+	xargs -0 perl -0777 -pi -e 's{/Cellar/}{/Cellaz/}g; s{/\0C\0e\0l\0l\0a\0r\0/\0}{/\0C\0e\0l\0l\0a\0z\0/\0}g'
+
 # make sure nothing references libraries outside the bundle or the system
 unresolved=$(find "$MASTER_APP/Contents" -type f \( -perm -u+x -o -name "*.dylib" \) -exec otool -L {} + 2>/dev/null |
 			 grep -E "^\s+/(opt|usr/local)/" || true)

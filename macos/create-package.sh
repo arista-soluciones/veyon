@@ -93,6 +93,96 @@ done
 
 "$MACDEPLOYQT" "$MASTER_APP" "${DEPLOY_ARGS[@]}"
 
+# macdeployqt leaves some references behind: it only resolves @rpath via the
+# rpaths of the binaries it processes, which misses modules in separate Homebrew
+# kegs (e.g. QtSvg required by Qt's SVG plugins), and it may keep absolute paths
+FRAMEWORKS_DIR="$MASTER_APP/Contents/Frameworks"
+
+library_name()
+{
+	case "$1" in
+		*.framework/*) echo "$1" | sed -E 's#^.*/([^/]+\.framework/)#\1#' ;;
+		*) basename "$1" ;;
+	esac
+}
+
+find_library()
+{
+	local name=$1 dir
+	for dir in "${libpaths[@]}" "$(brew --prefix)"/opt/*/lib ; do
+		if [ -n "$dir" ] && [ -e "$dir/$name" ] ; then
+			echo "$dir/$name"
+			return 0
+		fi
+	done
+	return 1
+}
+
+copy_library()
+{
+	local source=$1 name=$2 target="$FRAMEWORKS_DIR/$2"
+	echo "  Adding $name"
+	mkdir -p "$(dirname "$target")"
+	cp -L "$source" "$target"
+	chmod u+w "$target"
+	case "$name" in
+		*.framework/*)
+			# only the parts macdeployqt would copy, as stray files break code signing
+			local framework="$FRAMEWORKS_DIR/${name%%.framework/*}.framework"
+			if [ -d "$(dirname "$source")/Resources" ] ; then
+				cp -RL "$(dirname "$source")/Resources" "$(dirname "$target")/"
+				ln -sfh Versions/Current/Resources "$framework/Resources"
+			fi
+			ln -sfh "$(basename "$(dirname "$target")")" "$framework/Versions/Current"
+			ln -sfh "Versions/Current/$(basename "$target")" "$framework/$(basename "$target")"
+			;;
+	esac
+}
+
+# copying a library can add new references, so repeat until nothing changes
+changed=1
+while [ "$changed" = 1 ] ; do
+	changed=0
+	while IFS= read -r -d '' binary ; do
+		case "$(file -b "$binary")" in
+			*Mach-O*) ;;
+			*) continue ;;
+		esac
+		id=$(otool -D "$binary" | tail -n +2)
+		case "$id" in
+			/opt/*|/usr/local/*)
+				chmod u+w "$binary"
+				install_name_tool -id "@rpath/$(library_name "$id")" "$binary"
+				;;
+		esac
+		while IFS= read -r dep ; do
+			[ "$dep" = "$id" ] && continue
+			case "$dep" in
+				/opt/*|/usr/local/*)
+					name=$(library_name "$dep")
+					if [ ! -e "$FRAMEWORKS_DIR/$name" ] ; then
+						copy_library "$dep" "$name"
+						changed=1
+					fi
+					chmod u+w "$binary"
+					install_name_tool -change "$dep" "@rpath/$name" "$binary"
+					;;
+				@rpath/*)
+					name=${dep#@rpath/}
+					if [ ! -e "$FRAMEWORKS_DIR/$name" ] ; then
+						if ! source=$(find_library "$name") ; then
+							echo "Cannot find $name required by $binary" >&2
+							exit 1
+						fi
+						copy_library "$source" "$name"
+						changed=1
+					fi
+					;;
+			esac
+		done < <(otool -L "$binary" | tail -n +2 | sed -E 's/^[[:space:]]+//; s/ \(compatibility version.*$//')
+	done < <(find "$MASTER_APP/Contents/MacOS" "$FRAMEWORKS_DIR" "$MASTER_APP/Contents/PlugIns" -type f -print0)
+done
+
 # make sure nothing references libraries outside the bundle or the system
 unresolved=$(find "$MASTER_APP/Contents" -type f \( -perm -u+x -o -name "*.dylib" \) -exec otool -L {} + 2>/dev/null |
 			 grep -E "^\s+/(opt|usr/local)/" || true)

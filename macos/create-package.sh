@@ -148,6 +148,16 @@ while [ "$changed" = 1 ] ; do
 			*Mach-O*) ;;
 			*) continue ;;
 		esac
+		# rpaths of Homebrew libraries would load a second copy of Qt from outside the bundle
+		while IFS= read -r rpath ; do
+			case "$rpath" in
+				@executable_path/*) ;;
+				*)
+					chmod u+w "$binary"
+					install_name_tool -delete_rpath "$rpath" "$binary"
+					;;
+			esac
+		done < <(otool -l "$binary" | sed -nE '/cmd LC_RPATH/,/path /s/^[[:space:]]+path (.*) \(offset [0-9]+\)$/\1/p')
 		id=$(otool -D "$binary" | tail -n +2)
 		case "$id" in
 			/opt/*|/usr/local/*)

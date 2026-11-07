@@ -13,7 +13,12 @@ macro(set_default_target_properties TARGET_NAME)
 		-DQT_USE_QSTRINGBUILDER
 		-DQT_STRICT_ITERATORS
 	)
-	target_compile_options(${TARGET_NAME} PRIVATE "-Wall;-Werror")
+	if(VEYON_BUILD_APPLE)
+		# Apple Clang and SDK deprecations produce warnings not covered by the other platforms' CI
+		target_compile_options(${TARGET_NAME} PRIVATE "-Wall")
+	else()
+		target_compile_options(${TARGET_NAME} PRIVATE "-Wall;-Werror")
+	endif()
 	if(WITH_LTO)
 		if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND ${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.13.0")
 			target_compile_options(${TARGET_NAME} PRIVATE ${GCC_LTO_FLAGS})
@@ -26,7 +31,8 @@ macro(set_default_target_properties TARGET_NAME)
 		target_link_options(${TARGET_NAME} PRIVATE "-static-libsan")
 		target_compile_options(${TARGET_NAME} PRIVATE "-fsanitize=address")
 		target_link_options(${TARGET_NAME} PRIVATE "-fsanitize=address")
-	else()
+	elseif(NOT VEYON_BUILD_APPLE)
+		# Apple's linker does not know this flag but rejects undefined symbols by default
 		set_target_properties(${TARGET_NAME} PROPERTIES LINK_FLAGS "-Wl,-no-undefined")
 	endif()
 	if(WITH_THREAD_SANITIZER)

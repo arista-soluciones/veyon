@@ -79,7 +79,7 @@ if(WITH_PCH)
 	target_precompile_headers(veyon-core PRIVATE ${PCH})
 
 	add_pch_target(veyon-application-pch ${PCH})
-	set_target_properties(veyon-application-pch PROPERTIES COMPILE_OPTIONS "${CMAKE_COMPILE_OPTIONS_PIE}")
+	target_compile_options(veyon-application-pch PRIVATE ${CMAKE_COMPILE_OPTIONS_PIE})
 	set_target_properties(veyon-application-pch PROPERTIES LINK_OPTIONS "${CMAKE_LINK_OPTIONS_PIE}")
 
 	add_pch_target(veyon-library-pch ${PCH})

@@ -1,0 +1,9 @@
+#!/bin/sh
+#
+# remove previously installed application bundles so that no outdated
+# files (e.g. plugins removed in newer versions) are left behind
+#
+
+rm -rf "/Applications/Veyon/Veyon Master.app" "/Applications/Veyon/Veyon Configurator.app"
+
+exit 0

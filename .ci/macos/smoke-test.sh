@@ -24,7 +24,7 @@ if ! grep -q '^MacPlatformPlugin' "$LOG" ; then
 	status=1
 fi
 
-foreign=$(sed -nE 's/^dyld\[[0-9]+\]: (<[^>]*> )?//p' "$LOG" |
+foreign=$(sed -nE 's/^dyld\[[0-9]+\]: <[^>]*> //p' "$LOG" |
 		  grep -v -E '^(/usr/lib/|/System/)' | grep -v -F "$APP/" || true)
 if [ -n "$foreign" ] ; then
 	echo "Libraries loaded from outside the bundle:" >&2

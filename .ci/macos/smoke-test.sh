@@ -10,6 +10,9 @@
 set -euo pipefail
 
 APP=$(cd "$1" && pwd -P)
+
+# set by Qt installations (e.g. on CI machines) but not on the users' machines
+unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QML2_IMPORT_PATH
 CLI="$APP/Contents/MacOS/veyon-cli"
 
 "$CLI" about

@@ -65,4 +65,8 @@ while IFS= read -r -d '' file ; do
 done < <(find "$APP/Contents" -type f -print0)
 [ "$not_universal" = 0 ] || exit 1
 
+# QCA and OpenSSL have paths in DEPS_PREFIX compiled in, which don't exist on the
+# users' machines - hide it during the smoke test to check the bundle on its own
+mv "$DEPS_PREFIX" "$DEPS_PREFIX.hidden"
+trap 'mv "$DEPS_PREFIX.hidden" "$DEPS_PREFIX"' EXIT
 "$SRC/.ci/macos/smoke-test.sh" "$APP"

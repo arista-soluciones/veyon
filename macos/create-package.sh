@@ -8,7 +8,7 @@
 # optional environment variables:
 #   MACDEPLOYQT              path to macdeployqt (default: from PATH)
 #   QCA_OSSL_PLUGIN          path to the QCA OpenSSL plugin (default: searched in Homebrew prefix)
-#   DEPLOY_LIBPATHS          colon-separated list of additional library search paths for macdeployqt
+#   DEPLOY_LIBPATHS          colon-separated list of library search paths for libraries to bundle
 #   CODESIGN_IDENTITY        identity for signing the application bundles (default: "-" = ad-hoc)
 #   INSTALLER_SIGN_IDENTITY  "Developer ID Installer" identity for signing the package (default: unsigned)
 #
@@ -95,7 +95,8 @@ done
 
 # macdeployqt leaves some references behind: it only resolves @rpath via the
 # rpaths of the binaries it processes, which misses modules in separate Homebrew
-# kegs (e.g. QtSvg required by Qt's SVG plugins), and it may keep absolute paths
+# kegs (e.g. QtSvg required by Qt's SVG plugins), and it may keep absolute paths.
+# Everything outside /usr/lib and /System is not part of macOS and has to be bundled.
 FRAMEWORKS_DIR="$MASTER_APP/Contents/Frameworks"
 
 library_name()
@@ -109,7 +110,7 @@ library_name()
 find_library()
 {
 	local name=$1 dir
-	for dir in "${libpaths[@]}" "$(brew --prefix)"/opt/*/lib ; do
+	for dir in "${libpaths[@]}" ; do
 		if [ -n "$dir" ] && [ -e "$dir/$name" ] ; then
 			echo "$dir/$name"
 			return 0
@@ -148,7 +149,7 @@ while [ "$changed" = 1 ] ; do
 			*Mach-O*) ;;
 			*) continue ;;
 		esac
-		# rpaths of Homebrew libraries would load a second copy of Qt from outside the bundle
+		# rpaths of bundled libraries could load a second copy of Qt from outside the bundle
 		while IFS= read -r rpath ; do
 			case "$rpath" in
 				@executable_path/*) ;;
@@ -157,10 +158,12 @@ while [ "$changed" = 1 ] ; do
 					install_name_tool -delete_rpath "$rpath" "$binary"
 					;;
 			esac
-		done < <(otool -l "$binary" | sed -nE '/cmd LC_RPATH/,/path /s/^[[:space:]]+path (.*) \(offset [0-9]+\)$/\1/p')
-		id=$(otool -D "$binary" | tail -n +2)
+		done < <(otool -l "$binary" | sed -nE '/cmd LC_RPATH/,/path /s/^[[:space:]]+path (.*) \(offset [0-9]+\)$/\1/p' | sort -u)
+		# for universal binaries otool prints a header line per architecture
+		id=$(otool -D "$binary" | grep -v ':$' | head -n 1 || true)
 		case "$id" in
-			/opt/*|/usr/local/*)
+			/usr/lib/*|/System/*) ;;
+			/*)
 				chmod u+w "$binary"
 				install_name_tool -id "@rpath/$(library_name "$id")" "$binary"
 				;;
@@ -168,7 +171,8 @@ while [ "$changed" = 1 ] ; do
 		while IFS= read -r dep ; do
 			[ "$dep" = "$id" ] && continue
 			case "$dep" in
-				/opt/*|/usr/local/*)
+				/usr/lib/*|/System/*) ;;
+				/*)
 					name=$(library_name "$dep")
 					if [ ! -e "$FRAMEWORKS_DIR/$name" ] ; then
 						copy_library "$dep" "$name"
@@ -189,7 +193,7 @@ while [ "$changed" = 1 ] ; do
 					fi
 					;;
 			esac
-		done < <(otool -L "$binary" | tail -n +2 | sed -E 's/^[[:space:]]+//; s/ \(compatibility version.*$//')
+		done < <(otool -L "$binary" | grep -v ':$' | sed -E 's/^[[:space:]]+//; s/ \(compatibility version.*$//' | sort -u)
 	done < <(find "$MASTER_APP/Contents/MacOS" "$FRAMEWORKS_DIR" "$MASTER_APP/Contents/PlugIns" -type f -print0)
 done
 
@@ -201,7 +205,7 @@ find "$FRAMEWORKS_DIR" "$MASTER_APP/Contents/PlugIns" -type f -print0 |
 
 # make sure nothing references libraries outside the bundle or the system
 unresolved=$(find "$MASTER_APP/Contents" -type f \( -perm -u+x -o -name "*.dylib" \) -exec otool -L {} + 2>/dev/null |
-			 grep -E "^\s+/(opt|usr/local)/" || true)
+			 grep -E "^\s+/" | grep -v -E "^\s+/(usr/lib|System)/" || true)
 if [ -n "$unresolved" ] ; then
 	echo "Unresolved non-system library references:" >&2
 	echo "$unresolved" >&2

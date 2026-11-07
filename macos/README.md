@@ -15,7 +15,30 @@ ScreenCaptureKit, input injection and a launchd daemon).
 
 ## Building
 
-The build uses dependencies from [Homebrew](https://brew.sh):
+### Universal package (recommended)
+
+`.ci/macos/build-universal.sh` creates a package with universal binaries which runs
+on **Apple Silicon and Intel Macs with macOS 12 or newer**. It uses the official Qt
+binaries (which are universal) and builds all other dependencies (OpenSSL, QCA,
+libjpeg-turbo, libpng, LZO) from source into `~/veyon-deps`. LibVNCServer/Client are
+built from the bundled sources, so the submodules have to be checked out.
+
+```sh
+pip install aqtinstall && aqt install-qt mac desktop 6.8.3 clang_64 -m qt5compat -O ~/Qt
+brew install cmake ninja librsvg                       # build tools only
+
+git submodule update --init 3rdparty/libvncserver
+QT_ROOT_DIR=~/Qt/6.8.3/macos .ci/macos/build-universal.sh . /tmp/build-macos dist
+```
+
+The GitHub Actions workflow `.github/workflows/macos.yml` does the same on every push,
+installs and tests the package on an Intel and an Apple Silicon Mac, and provides it
+as the build artifact `veyon-master-macos-universal`.
+
+### Package using Homebrew libraries
+
+For development, `.ci/macos/build.sh` builds against the libraries from
+[Homebrew](https://brew.sh):
 
 ```sh
 brew install cmake ninja pkgconf openssl@3 libvncserver librsvg
@@ -25,18 +48,16 @@ brew install qca
 .ci/macos/build.sh . /tmp/build-macos dist
 ```
 
-This configures and builds Veyon, assembles the application bundles, deploys Qt and
-all other libraries into them via `macdeployqt`, signs them ad-hoc and creates
-`dist/veyon-master-<version>-macos-<arch>.pkg`.
+Homebrew only provides its libraries for Apple Silicon and the macOS versions it
+currently supports, so such a package requires an Apple Silicon Mac with at least the
+macOS version of the build machine.
 
-The GitHub Actions workflow `.github/workflows/macos.yml` does the same on every push
-and provides the installer package as a build artifact.
+Both scripts configure and build Veyon, assemble the application bundles, deploy Qt and
+all other libraries into them via `macdeployqt`, sign them ad-hoc and create
+`dist/veyon-master-<version>-macos-<architectures>.pkg`.
 
 Notes:
 
-* Homebrew libraries are built for the macOS version of the build machine. The
-  resulting package therefore requires at least that macOS version (enforced by
-  `LSMinimumSystemVersion` and the installer) and the same CPU architecture.
 * Server components (`WITH_SERVER`) and the LDAP plugin (`WITH_LDAP`) are disabled
   by default on macOS.
 * Set `CODESIGN_IDENTITY` (Developer ID Application) and `INSTALLER_SIGN_IDENTITY`

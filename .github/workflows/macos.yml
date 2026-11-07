@@ -6,22 +6,76 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  QT_VERSION: '6.8.3'
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
+
 jobs:
-  build-macos:
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [macos-15, macos-26]
-    runs-on: ${{ matrix.runner }}
+  # installer package for all Macs (Apple Silicon and Intel) running macOS 12 or newer
+  build-macos-universal:
+    runs-on: macos-15
+    env:
+      DEPS_PREFIX: /Users/runner/veyon-deps
     steps:
       - uses: actions/checkout@v6
         with:
           # required for determining the build number via git describe
           fetch-depth: 0
+          # LibVNCServer/LibVNCClient are built from the bundled sources
+          submodules: true
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          modules: qt5compat
+          cache: true
+      - name: Install build tools
+        run: brew install ninja librsvg
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.DEPS_PREFIX }}
+          key: macos-universal-deps-qt${{ env.QT_VERSION }}-${{ hashFiles('.ci/macos/build-deps.sh') }}
+      - name: Build and package
+        run: .ci/macos/build-universal.sh $GITHUB_WORKSPACE /tmp/build-macos $GITHUB_WORKSPACE/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: veyon-master-macos-universal
+          path: dist/*.pkg
+          if-no-files-found: error
+
+  test-macos-universal:
+    needs: build-macos-universal
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-26]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: veyon-master-macos-universal
+          path: dist
+      - name: Install and test package
+        run: |
+          echo "Testing on $(sw_vers -productVersion) ($(uname -m))"
+          sudo installer -pkg dist/*.pkg -target /
+          .ci/macos/smoke-test.sh "/Applications/Veyon/Veyon Master.app"
+          # system-wide configuration and key management require root privileges
+          sudo veyon-cli config set Network/VeyonServerPort 11200
+          test "$(veyon-cli config get Network/VeyonServerPort)" = 11200
+          sudo veyon-cli authkeys create teacher
+          sudo veyon-cli authkeys setaccessgroup teacher/private staff
+          veyon-cli authkeys list details
+
+  # build check for .ci/macos/build.sh, which uses Homebrew's libraries (Apple Silicon, recent macOS only)
+  build-macos-homebrew:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Install dependencies
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
-          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
         run: |
           brew install ninja pkgconf openssl@3 libvncserver librsvg
           # Qt is split into per-module formulae in recent Homebrew versions
@@ -29,19 +83,3 @@ jobs:
           brew install qca
       - name: Build and package
         run: .ci/macos/build.sh $GITHUB_WORKSPACE /tmp/build-macos $GITHUB_WORKSPACE/dist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: veyon-master-${{ matrix.runner }}
-          path: dist/*.pkg
-          if-no-files-found: error
-      - name: Test installed package
-        run: |
-          sudo installer -pkg dist/*.pkg -target /
-          veyon-cli about
-          # system-wide configuration and key management require root privileges
-          sudo veyon-cli config set Network/VeyonServerPort 11100
-          ls -l /Library/Preferences/ | grep -i veyon
-          sudo veyon-cli authkeys create teacher
-          sudo veyon-cli authkeys setaccessgroup teacher/private staff
-          veyon-cli authkeys list details
-          ls -lR "/Library/Application Support/Veyon/keys"

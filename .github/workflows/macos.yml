@@ -35,13 +35,10 @@ jobs:
           path: dist/*.pkg
           if-no-files-found: error
       - name: Test installed package
-        run: |
-          sudo installer -pkg dist/*.pkg -target /
-          veyon-cli about
-          # system-wide configuration and key management require root privileges
-          sudo veyon-cli config set Network/VeyonServerPort 11100
-          ls -l /Library/Preferences/ | grep -i veyon
-          sudo veyon-cli authkeys create teacher
-          sudo veyon-cli authkeys setaccessgroup teacher/private staff
-          veyon-cli authkeys list details
-          ls -lR "/Library/Application Support/Veyon/keys"
+        run: bash .ci/macos/test-package.sh dist/*.pkg $RUNNER_TEMP/test-artifacts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.runner }}
+          path: ${{ runner.temp }}/test-artifacts
+          if-no-files-found: ignore

@@ -215,13 +215,17 @@ bool MacCoreFunctions::runProgramAsAdmin( const QString& program, const QStringL
 	// program and parameters are passed as script arguments and quoted by AppleScript itself so
 	// nothing has to be escaped here; HOME and TMPDIR are reset so that the elevated process
 	// does not create root-owned files in the user's home or temporary directory
+	//
+	// the program is started in the background with its output detached so that "do shell script"
+	// returns right after successful authentication instead of blocking the calling process
+	// (which otherwise remains visible in the Dock) until the elevated program exits
 	return runAppleScript( {
 							   QStringLiteral("on run argv"),
 							   QStringLiteral("set commandLine to \"/usr/bin/env HOME=/var/root TMPDIR=/tmp\""),
 							   QStringLiteral("repeat with arg in argv"),
 							   QStringLiteral("set commandLine to commandLine & \" \" & quoted form of (arg as text)"),
 							   QStringLiteral("end repeat"),
-							   QStringLiteral("do shell script commandLine with administrator privileges"),
+							   QStringLiteral("do shell script commandLine & \" > /dev/null 2>&1 &\" with administrator privileges"),
 							   QStringLiteral("end run")
 						   },
 						   QStringList( program ) + parameters ) == 0;

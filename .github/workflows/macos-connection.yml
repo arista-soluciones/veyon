@@ -70,20 +70,28 @@ jobs:
   build-macos:
     needs: setup
     runs-on: macos-15
+    env:
+      QT_VERSION: '6.8.3'
+      DEPS_PREFIX: /Users/runner/veyon-deps
+      HOMEBREW_NO_AUTO_UPDATE: 1
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Install dependencies
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
-          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
-        run: |
-          brew install ninja pkgconf openssl@3 libvncserver librsvg
-          brew install qtbase qttools qt5compat qttranslations || brew install qt
-          brew install qca
+          submodules: true
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          modules: qt5compat
+          cache: true
+      - name: Install build tools
+        run: brew install ninja librsvg
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.DEPS_PREFIX }}
+          key: macos-universal-deps-qt${{ env.QT_VERSION }}-${{ hashFiles('.ci/macos/build-deps.sh') }}
       - name: Build and package
-        run: .ci/macos/build.sh $GITHUB_WORKSPACE /tmp/build-macos $GITHUB_WORKSPACE/dist
+        run: .ci/macos/build-universal.sh $GITHUB_WORKSPACE /tmp/build-macos $GITHUB_WORKSPACE/dist
       - uses: actions/upload-artifact@v4
         with:
           name: veyon-macos

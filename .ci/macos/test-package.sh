@@ -55,9 +55,16 @@ ls -l /Library/Preferences/ | grep -i veyon || fail "system configuration file n
 
 # imported values have to be readable by both root and regular users
 for runas in "sudo" "" ; do
-	for key in Authentication/Method Master/ComputerMonitoringUpdateInterval Network/VeyonServerPort ; do
-		echo "$key (${runas:-user}): $($runas veyon-cli config get $key)"
+	for keyvalue in Authentication/Method=1 Master/ComputerMonitoringUpdateInterval=2500 Network/VeyonServerPort=11100 ; do
+		key=${keyvalue%=*}
+		value=$($runas veyon-cli config get $key 2>&1 | tail -n 1)
+		echo "$key (${runas:-user}): $value"
+		[ "$value" = "${keyvalue#*=}" ] || fail "config get $key returned \"$value\" instead of ${keyvalue#*=}"
 	done
+	# loading the configuration must not produce any warnings
+	if $runas veyon-cli config list 2>&1 | grep -i "cannot replace\|doesn't point" ; then
+		fail "warnings while loading the configuration"
+	fi
 	$runas veyon-cli config export "$WORK/export-${runas:-user}.json"
 	python3 - "$HERE/test-config.json" "$WORK/export-${runas:-user}.json" <<'EOF'
 import json, sys
@@ -104,14 +111,14 @@ veyon-cli authkeys list | grep -q "teacher/public" || fail "public key not liste
 
 # the public key extracted from the private key has to match the original one
 sudo veyon-cli authkeys delete teacher/public
-sudo veyon-cli authkeys extract teacher/private
+sudo veyon-cli authkeys extract teacher
 veyon-cli authkeys export teacher/public "$WORK/teacher_public_key_extracted.pem"
 diff "$WORK/teacher_public_key.pem" "$WORK/teacher_public_key_extracted.pem" || fail "extracted public key differs"
 
 # import of an externally created private key (e.g. exported on Windows/Linux)
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "$WORK/external_private_key.pem" 2>/dev/null
 sudo veyon-cli authkeys import external/private "$WORK/external_private_key.pem"
-sudo veyon-cli authkeys extract external/private
+sudo veyon-cli authkeys extract external
 veyon-cli authkeys list | grep -q "external/public" || fail "imported external key not usable"
 sudo veyon-cli authkeys delete external/private
 sudo veyon-cli authkeys delete external/public

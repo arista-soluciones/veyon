@@ -59,14 +59,13 @@ jobs:
       - name: Install and test package
         run: |
           echo "Testing on $(sw_vers -productVersion) ($(uname -m))"
-          sudo installer -pkg dist/*.pkg -target /
-          .ci/macos/smoke-test.sh "/Applications/Veyon/Veyon Master.app"
-          # system-wide configuration and key management require root privileges
-          sudo veyon-cli config set Network/VeyonServerPort 11200
-          test "$(veyon-cli config get Network/VeyonServerPort)" = 11200
-          sudo veyon-cli authkeys create teacher
-          sudo veyon-cli authkeys setaccessgroup teacher/private staff
-          veyon-cli authkeys list details
+          .ci/macos/test-package.sh dist/*.pkg $RUNNER_TEMP/test-artifacts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.runner }}
+          path: ${{ runner.temp }}/test-artifacts
+          if-no-files-found: ignore
 
   # build check for .ci/macos/build.sh, which uses Homebrew's libraries (Apple Silicon, recent macOS only)
   build-macos-homebrew:

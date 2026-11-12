@@ -1,0 +1,15 @@
+{
+    "Authentication": {
+        "Method": 1
+    },
+    "Logging": {
+        "LogLevel": 5
+    },
+    "Master": {
+        "ComputerMonitoringUpdateInterval": 2500,
+        "AutoSelectCurrentLocation": true
+    },
+    "Network": {
+        "VeyonServerPort": 11100
+    }
+}

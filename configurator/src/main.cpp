@@ -31,10 +31,28 @@
 #include "PlatformCoreFunctions.h"
 #include "Logger.h"
 
+#ifdef Q_OS_MACOS
+#include <unistd.h>
+#endif
+
 
 
 int main( int argc, char **argv )
 {
+#ifdef Q_OS_MACOS
+	// elevation via AppleScript/Authorization Services may only set the effective user ID to root
+	// while the real user ID remains the one of the calling user - system-wide preferences then are
+	// not writable as CFPreferences talks to the per-user instance of cfprefsd, therefore make the
+	// real IDs match before any preferences are accessed
+	if( geteuid() == 0 && getuid() != 0 )
+	{
+		if( setgid( 0 ) != 0 || setuid( 0 ) != 0 )
+		{
+			qWarning( "Failed to switch real user ID to root" );
+		}
+	}
+#endif
+
 	VeyonCore::setupApplicationParameters();
 
 	QApplication app( argc, argv );

@@ -51,6 +51,14 @@ static void loadSettingsTree( Object *obj, QSettings *s,
 
 	for( const auto& g : childGroups )
 	{
+#ifdef Q_OS_MACOS
+		// skip entries of Apple's global preferences (e.g. com.apple.*) which earlier versions
+		// copied into Veyon's preferences as they were loaded through the fallback domains
+		if( parentKey.isEmpty() && g == QLatin1String("com") )
+		{
+			continue;
+		}
+#endif
 		const QString subParentKey = parentKey +
 									( parentKey.isEmpty() ? QString() : QStringLiteral("/") ) + g;
 		s->beginGroup( g );
@@ -59,6 +67,15 @@ static void loadSettingsTree( Object *obj, QSettings *s,
 	}
 
 	const auto childKeys = s->childKeys();
+
+#ifdef Q_OS_MACOS
+	// all Veyon settings belong to a group - top-level keys (e.g. AppleLocale) stem from Apple's
+	// global preferences, see above
+	if( parentKey.isEmpty() )
+	{
+		return;
+	}
+#endif
 
 	for( const auto& k : childKeys )
 	{
@@ -193,7 +210,7 @@ void LocalStore::clear()
 
 QSettings *LocalStore::createSettingsObject() const
 {
-	return new QSettings(
+	auto settings = new QSettings(
 #ifdef Q_OS_WIN
 				QSettings::Registry64Format,
 #else
@@ -202,6 +219,14 @@ QSettings *LocalStore::createSettingsObject() const
 				scope() == Scope::System ? QSettings::SystemScope : QSettings::UserScope,
 				QCoreApplication::organizationName(),
 				QCoreApplication::applicationName());
+
+#ifdef Q_OS_MACOS
+	// on macOS the fallbacks include Apple's global preferences domain (NSGlobalDomain), whose keys
+	// must not end up in Veyon's configuration
+	settings->setFallbacksEnabled( false );
+#endif
+
+	return settings;
 }
 
 

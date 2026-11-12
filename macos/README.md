@@ -117,6 +117,13 @@ Notes:
 Alternatively start *Veyon Configurator*, which asks for administrator credentials
 and offers the full configuration UI.
 
+If Veyon Configurator reports that the configuration is not writable, start it
+from Terminal with administrator privileges instead:
+
+```sh
+sudo "/Applications/Veyon/Veyon Configurator.app/Contents/MacOS/veyon-configurator"
+```
+
 
 ## Known limitations
 

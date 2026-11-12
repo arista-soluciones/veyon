@@ -1,0 +1,195 @@
+name: "macOS Connection Test"
+
+# Connects Veyon Master on macOS to a Veyon Server on Linux using key file
+# authentication. Both runners join a Tailscale network, which requires either
+# the repository secrets TS_OAUTH_CLIENT_ID + TS_OAUTH_SECRET (OAuth client with
+# the "auth_keys" write scope, allowed to assign tag:ci) or TS_AUTHKEY
+# (reusable, ephemeral auth key).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+  push:
+    paths:
+      - ".ci/macos/**"
+      - ".github/workflows/macos-connection.yml"
+      - "macos/**"
+      - "plugins/platform/mac/**"
+
+concurrency:
+  group: macos-connection-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+  TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+  TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+  SERVER_HOSTNAME: veyon-ci-server-${{ github.run_id }}-${{ github.run_attempt }}
+  CLIENT_HOSTNAME: veyon-ci-master-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check Tailscale credentials
+        run: |
+          if [ -z "$TS_AUTHKEY" ] && { [ -z "$TS_OAUTH_CLIENT_ID" ] || [ -z "$TS_OAUTH_SECRET" ] ; } ; then
+            echo "::error::Configure the repository secrets TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET or TS_AUTHKEY (see workflow file)"
+            exit 1
+          fi
+      - name: Create throwaway key pair
+        run: |
+          mkdir keys
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out keys/teacher_private_key.pem
+          openssl pkey -in keys/teacher_private_key.pem -pubout -out keys/teacher_public_key.pem
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-keys
+          path: keys
+          retention-days: 1
+
+  build-linux:
+    needs: setup
+    runs-on: ubuntu-24.04
+    container: veyon/ci.linux.ubuntu.24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - run: git config --global --add safe.directory $GITHUB_WORKSPACE
+      - run: .ci/linux.ubuntu.24.04/script.sh $GITHUB_WORKSPACE /tmp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: veyon-linux
+          path: veyon*.deb
+          if-no-files-found: error
+          retention-days: 1
+
+  build-macos:
+    needs: setup
+    runs-on: macos-15
+    env:
+      QT_VERSION: '6.8.3'
+      DEPS_PREFIX: /Users/runner/veyon-deps
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: true
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          modules: qt5compat
+          cache: true
+      - name: Install build tools
+        run: brew install ninja librsvg
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.DEPS_PREFIX }}
+          key: macos-universal-deps-qt${{ env.QT_VERSION }}-${{ hashFiles('.ci/macos/build-deps.sh') }}
+      - name: Build and package
+        run: .ci/macos/build-universal.sh $GITHUB_WORKSPACE /tmp/build-macos $GITHUB_WORKSPACE/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: veyon-macos
+          path: dist/*.pkg
+          if-no-files-found: error
+          retention-days: 1
+
+  server:
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: veyon-linux
+          path: pkg
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-keys
+          path: keys
+      - name: Start Veyon Server
+        run: bash .ci/macos/connection-test-server.sh start pkg/*.deb keys/teacher_public_key.pem $RUNNER_TEMP/server-logs
+      - name: Join Tailscale network (OAuth)
+        if: env.TS_OAUTH_CLIENT_ID != ''
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          hostname: ${{ env.SERVER_HOSTNAME }}
+          version: latest
+      - name: Join Tailscale network (auth key)
+        if: env.TS_OAUTH_CLIENT_ID == ''
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+          hostname: ${{ env.SERVER_HOSTNAME }}
+          version: latest
+      - name: Wait for Veyon Master tests
+        run: |
+          tailscale ip -4
+          bash .ci/macos/connection-test-server.sh wait-for-client 1800
+      - name: Stop Veyon Server
+        if: always()
+        run: bash .ci/macos/connection-test-server.sh stop $RUNNER_TEMP/server-logs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-logs
+          path: ${{ runner.temp }}/server-logs
+          if-no-files-found: ignore
+
+  client:
+    needs: [build-linux, build-macos]
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: veyon-macos
+          path: pkg
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-keys
+          path: keys
+      - name: Join Tailscale network (OAuth)
+        if: env.TS_OAUTH_CLIENT_ID != ''
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          hostname: ${{ env.CLIENT_HOSTNAME }}
+          version: latest
+      - name: Join Tailscale network (auth key)
+        if: env.TS_OAUTH_CLIENT_ID == ''
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+          hostname: ${{ env.CLIENT_HOSTNAME }}
+          version: latest
+      - name: Find Veyon Server
+        run: |
+          for i in $(seq 90) ; do
+            if SERVER_IP=$(tailscale ip -4 "$SERVER_HOSTNAME" 2>/dev/null) && [ -n "$SERVER_IP" ] ; then
+              echo "Veyon Server: $SERVER_IP"
+              echo "SERVER_IP=$SERVER_IP" >> $GITHUB_ENV
+              exit 0
+            fi
+            sleep 10
+          done
+          tailscale status || true
+          echo "::error::$SERVER_HOSTNAME did not join the Tailscale network"
+          exit 1
+      - name: Connection test
+        run: bash .ci/macos/connection-test-client.sh pkg/*.pkg keys/teacher_private_key.pem $SERVER_IP
+      - name: Signal server job
+        if: always() && env.SERVER_IP != ''
+        run: curl -s --retry 5 --retry-connrefused "http://$SERVER_IP:8000/done" || true

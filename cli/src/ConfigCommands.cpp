@@ -329,6 +329,9 @@ QString ConfigCommands::printableConfigurationValue( const QVariant& value )
 		value.userType() == QMetaType::QUuid ||
 		value.userType() == QMetaType::UInt ||
 		value.userType() == QMetaType::Int ||
+		value.userType() == QMetaType::LongLong ||
+		value.userType() == QMetaType::ULongLong ||
+		value.userType() == QMetaType::Double ||
 		value.userType() == QMetaType::Bool)
 	{
 		return value.toString();
